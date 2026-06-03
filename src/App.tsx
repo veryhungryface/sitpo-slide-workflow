@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import './App.css'
+import { getSubjectsForGrade, getUnitsForGradeSubject, gradeOptions } from './data/elementaryCurriculum'
 import { sampleProject, workflowSteps } from './data/sampleProject'
 import { downloadText, exportMarkdown } from './lib/exporters'
 import { generatePptx } from './lib/pptxGenerator'
@@ -29,6 +30,41 @@ function nextActionForStep(stepId: string) {
     default:
       return '산출물 다운로드 및 공유 링크 생성'
   }
+}
+
+const activityTemplates: Record<string, string[]> = {
+  국어: ['핵심 문장 찾기', '생각을 근거와 함께 말하기', '짧은 글로 정리하기'],
+  수학: ['개념 카드 분류하기', '대표 문제 함께 해결하기', '내 풀이 과정을 설명하기'],
+  사회: ['자료를 보고 사실 찾기', '사례를 비교해 보기', '내 생활과 연결해 말하기'],
+  과학: ['관찰 결과 기록하기', '원인과 결과 연결하기', '개념 모형으로 설명하기'],
+  영어: ['핵심 표현 따라 말하기', '짝과 묻고 답하기', '짧은 문장 만들기'],
+  음악: ['리듬이나 가락 따라 표현하기', '느낌을 말로 나누기', '간단한 창작 활동하기'],
+  미술: ['이미지 관찰하기', '표현 방법 선택하기', '작품 의도 설명하기'],
+  체육: ['동작 순서 익히기', '안전 규칙 확인하기', '팀 활동 후 피드백하기'],
+  실과: ['생활 사례 찾기', '절차를 순서대로 정리하기', '간단한 실습 계획 세우기'],
+  도덕: ['상황 판단하기', '내 선택의 이유 말하기', '실천 다짐 쓰기'],
+}
+
+function buildSlidesFromRequest(params: { slideCount: number; subject: string; unit: string; topic: string }): SlidePlan[] {
+  const stages = ['도입', '핵심 개념', '예시 탐구', '방법 익히기', '함께 연습', '자료 분석', '오개념 점검', '적용 활동', '정리와 성찰']
+  const activities = activityTemplates[params.subject] ?? ['핵심 내용 확인하기', '예시와 비예시 비교하기', '한 문장으로 정리하기']
+
+  return Array.from({ length: params.slideCount }, (_, index) => {
+    const stage = stages[index % stages.length]
+    const slideNo = index + 1
+
+    return {
+      slideNo,
+      title: `${params.topic} - ${slideNo}차시`,
+      learningGoal: `${params.subject} ${params.unit} 단원에서 ${params.topic}의 핵심을 이해합니다.`,
+      mainMessage: `${stage} 단계에서는 ${params.topic}을 학생 활동과 시각 자료로 연결합니다.`,
+      visibleText: [params.unit, params.topic, stage],
+      studentActivity: activities[index % activities.length],
+      imagePlan: `${params.subject} ${params.topic} 이해를 돕는 16:9 수업 장면 또는 핵심 예시 이미지`,
+      diagramPlan: `${params.topic} 핵심 관계·절차·비교 구조를 한눈에 보는 도식`,
+      teacherNote: `선택한 과목/단원(${params.subject} · ${params.unit}) 기준으로 실제 수업 흐름에 맞춰 구체화합니다.`,
+    }
+  })
 }
 
 // --- Mocking AI/Codex Generation --- //
@@ -64,7 +100,33 @@ function App() {
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('sitpo-webhook-url') ?? '')
   const [loading, setLoading] = useState(false)
 
+  const subjectOptions = useMemo(() => getSubjectsForGrade(grade), [grade])
+  const unitOptions = useMemo(() => getUnitsForGradeSubject(grade, subject), [grade, subject])
   const currentStep = project ? workflowSteps.find(step => step.id === project.currentStep) || workflowSteps[0] : workflowSteps[0]
+
+  const handleGradeChange = (nextGrade: string) => {
+    const nextSubjects = getSubjectsForGrade(nextGrade)
+    const nextSubject = nextSubjects[0]?.subject ?? ''
+    const nextUnit = nextSubjects[0]?.units[0] ?? ''
+
+    setGrade(nextGrade)
+    setSubject(nextSubject)
+    setUnit(nextUnit)
+    setTopic(nextUnit)
+  }
+
+  const handleSubjectChange = (nextSubject: string) => {
+    const nextUnit = getUnitsForGradeSubject(grade, nextSubject)[0] ?? ''
+
+    setSubject(nextSubject)
+    setUnit(nextUnit)
+    setTopic(nextUnit)
+  }
+
+  const handleUnitChange = (nextUnit: string) => {
+    setUnit(nextUnit)
+    setTopic(nextUnit)
+  }
 
   const handoffPayload: HandoffPayload | null = useMemo(() => {
     if (!project) return null
@@ -104,11 +166,7 @@ function App() {
       ...sampleProject,
       id: `sitpo-${Date.now()}`,
       grade, subject, unit, topic, style,
-      slides: Array.from({ length: slideCount }, (_, i) => ({
-        ...sampleProject.slides[i % sampleProject.slides.length], // Cycle through sample slides
-        slideNo: i + 1,
-        title: `${topic} - ${i + 1}차시`,
-      })),
+      slides: buildSlidesFromRequest({ slideCount, subject, unit, topic }),
       currentStep: 'plan',
       title: `${grade} ${subject} - ${topic}`,
     }
@@ -210,15 +268,27 @@ function App() {
             <div className="grid two">
               <label className="field">
                 <span>대상 (학년)</span>
-                <input value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="예: 초5" />
+                <select value={grade} onChange={(e) => handleGradeChange(e.target.value)}>
+                  {gradeOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>과목</span>
-                <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="예: 과학" />
+                <select value={subject} onChange={(e) => handleSubjectChange(e.target.value)}>
+                  {subjectOptions.map((option) => (
+                    <option key={option.subject} value={option.subject}>{option.subject}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>단원</span>
-                <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="예: 생물과 환경" />
+                <select value={unit} onChange={(e) => handleUnitChange(e.target.value)}>
+                  {unitOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>주제</span>

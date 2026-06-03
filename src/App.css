@@ -9,7 +9,7 @@ body {
   color: #19352c;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
 }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 .app-shell { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -138,7 +138,8 @@ tr.selected, tr:hover { background: #f1ffd0; }
 .inspector-card p { color: #d7dfcf; line-height: 1.45; }
 .field { display: grid; gap: 8px; }
 .field span { font-weight: 900; font-size: 13px; }
-.field input { width: 100%; border: 1px solid #d7dfcf; border-radius: 12px; padding: 11px 12px; color: #19352c; background: #fffdf4; }
+.field input, .field select { width: 100%; border: 1px solid #d7dfcf; border-radius: 12px; padding: 11px 12px; color: #19352c; background: #fffdf4; }
+.field select { appearance: auto; cursor: pointer; }
 .payload-meta { display: grid; gap: 8px; margin: 0; }
 .payload-meta div { display: grid; grid-template-columns: 82px 1fr; gap: 8px; }
 .payload-meta dt { color: #738276; font-size: 12px; font-weight: 900; }
