@@ -1,4 +1,5 @@
 export type WorkflowStatus = '대기' | '진행 중' | '완료' | '수정 필요'
+export type SitpoJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
 export type WorkflowStep = {
   id: string
@@ -60,6 +61,34 @@ export type SitpoProject = {
   assets: AssetPlan[]
   diagrams: DiagramSpec[]
   qa: QACheckItem[]
+}
+
+export type SitpoJobRequest = {
+  grade: string
+  subject: string
+  unit: string
+  topic: string
+  style: string
+  slideCount: number
+}
+
+export type SitpoJobFile = {
+  filename: string
+  url: string
+  sizeBytes: number
+  mimeType: string
+}
+
+export type SitpoJob = {
+  id: string
+  status: SitpoJobStatus
+  request: SitpoJobRequest
+  createdAt: string
+  updatedAt: string
+  logs: string[]
+  files: SitpoJobFile[]
+  result?: SitpoProject
+  error?: string
 }
 
 export type HandoffPayload = {
