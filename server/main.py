@@ -22,6 +22,7 @@ REPO_ROOT = SERVER_DIR.parent
 JOBS_DIR = SERVER_DIR / "jobs"
 RESULT_JSON = "sitpo_project.json"
 PPTX_FILENAME = "sitpo_project.pptx"
+ASSET_SHEET_CROP_LOG = "crop_asset_sheet.log"
 
 
 class JobRequest(BaseModel):
@@ -123,6 +124,12 @@ Input:
 - style: {request["style"]}
 - slideCount: {request["slideCount"]}
 
+Critical production workflow:
+- Do NOT generate one full illustration per slide.
+- First design the slide plan and decide the reusable visual assets needed across the deck.
+- Then use native image generation exactly for ONE composite asset sheet image containing those reusable assets.
+- The server will crop the asset sheet into transparent PNG cutouts and place them into PPTX slides.
+
 Required outputs:
 1. Create `{RESULT_JSON}` as UTF-8 JSON matching this schema:
 {{
@@ -135,6 +142,11 @@ Required outputs:
   "style": string,
   "currentStep": "download",
   "createdAt": string,
+  "assetSheet": {{
+    "fileName": "asset_sheet.png",
+    "prompt": string,
+    "layout": string
+  }},
   "slides": [
     {{
       "slideNo": number,
@@ -143,21 +155,23 @@ Required outputs:
       "mainMessage": string,
       "visibleText": string[],
       "studentActivity": string,
-      "imagePlan": string,
+      "imagePlan": "which cutout assets appear on this slide and why",
       "diagramPlan": string,
       "teacherNote": string,
-      "imageFile": optional string
+      "assetIds": string[]
     }}
   ],
   "assets": [
     {{
-      "id": string,
+      "id": "short-stable-id",
       "name": string,
       "slides": number[],
       "kind": "배경" | "투명 PNG" | "아이콘 세트" | "캐릭터/오브젝트",
       "prompt": string,
-      "status": "완료",
-      "fileName": optional string
+      "status": "대기",
+      "sourceSheet": "asset_sheet.png",
+      "fileName": "short-stable-id.png",
+      "cropBoxPct": {{"x": number, "y": number, "w": number, "h": number}}
     }}
   ],
   "diagrams": [
@@ -174,12 +188,26 @@ Required outputs:
   ],
   "qa": [{{"id": string, "label": string, "detail": string, "passed": boolean}}]
 }}
-2. Generate exactly {request["slideCount"]} custom slides for the user's requested grade, subject, unit, topic, and style. Do not copy or reuse any sample project content.
-3. Use native image generation for at least one representative visual asset. Save the real generated image file in this directory as PNG/JPEG/WebP and reference the filename from `assets[].fileName` and at least one related slide `imageFile`.
-4. If native image generation is unavailable, fail clearly: write `image_generation_unavailable.txt` explaining the unavailable native tool and do not create fake, copied, downloaded, SVG-only, base64-placeholder, or synthesized substitute images.
-5. Do not download images from the web. Do not create text-only placeholders for visual assets.
-6. Keep all visible text Korean, age-appropriate, concise, and classroom-ready.
+2. Generate exactly {request["slideCount"]} custom slides for the requested grade, subject, unit, topic, and style. Do not copy or reuse sample project content.
+3. Design 6 to 12 reusable assets unless the topic genuinely needs fewer. Each asset must be used by at least one slide.
+4. Use native image generation to create ONE real composite asset sheet file named `asset_sheet.png` or another clearly referenced PNG/JPEG/WebP file.
+5. Asset sheet requirements: solid light neutral background, no readable text, each object separated by wide margins, consistent style, visible full object boundaries, no overlapping objects, roughly grid layout.
+6. For every asset, provide `cropBoxPct` as percentages of the asset sheet image. Use x/y/w/h in 0..100. Boxes must include the full object with a small margin and must not overlap neighboring objects.
+7. If native image generation is unavailable, fail clearly: write `image_generation_unavailable.txt` explaining the unavailable native tool and do not create fake, copied, downloaded, SVG-only, base64-placeholder, or synthesized substitute images.
+8. Do not download images from the web. Do not create text-only placeholders for visual assets.
+9. Keep all visible text Korean, age-appropriate, concise, and classroom-ready.
 """
+
+def _asset_sheet_name(project: dict[str, Any]) -> str | None:
+  sheet = project.get("assetSheet")
+  if isinstance(sheet, dict) and isinstance(sheet.get("fileName"), str):
+    return Path(sheet["fileName"]).name
+  for asset in project.get("assets", []):
+    if isinstance(asset, dict):
+      for key in ("sourceSheet", "sheetFile", "assetSheet", "sourceFile"):
+        if isinstance(asset.get(key), str):
+          return Path(asset[key]).name
+  return None
 
 
 def validate_result(job: dict[str, Any], project: dict[str, Any]) -> None:
@@ -188,28 +216,48 @@ def validate_result(job: dict[str, Any], project: dict[str, Any]) -> None:
   if not isinstance(slides, list) or len(slides) != request["slideCount"]:
     raise ValueError(f"Codex result must contain exactly {request['slideCount']} slides.")
 
-  image_refs: set[str] = set()
-  for slide in slides:
-    if isinstance(slide, dict) and isinstance(slide.get("imageFile"), str):
-      image_refs.add(Path(slide["imageFile"]).name)
+  assets = project.get("assets")
+  if not isinstance(assets, list) or not assets:
+    raise ValueError("Codex result must contain reusable assets for the asset sheet workflow.")
 
-  for asset in project.get("assets", []):
-    if isinstance(asset, dict):
-      for key in ("fileName", "filename", "path", "generatedImage"):
-        if isinstance(asset.get(key), str):
-          image_refs.add(Path(asset[key]).name)
+  sheet_name = _asset_sheet_name(project)
+  if not sheet_name:
+    raise ValueError("Codex result must include assetSheet.fileName or assets[].sourceSheet.")
 
-  real_images = []
-  for filename in image_refs:
-    path = job_dir(job["id"]) / filename
-    if path.exists() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and path.stat().st_size > 0:
-      real_images.append(path)
-
-  if not real_images:
+  sheet_path = job_dir(job["id"]) / sheet_name
+  if not sheet_path.exists() or sheet_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"} or sheet_path.stat().st_size <= 0:
     unavailable = job_dir(job["id"]) / "image_generation_unavailable.txt"
     if unavailable.exists():
       raise ValueError(unavailable.read_text(encoding="utf-8").strip())
-    raise ValueError("Codex did not produce a real generated image file. Native image generation is required.")
+    raise ValueError("Codex did not produce a real asset sheet image file. Native image generation is required.")
+
+  for asset in assets:
+    if not isinstance(asset, dict):
+      raise ValueError("Every asset must be an object.")
+    if not asset.get("id") or not asset.get("name"):
+      raise ValueError("Every asset must include id and name.")
+    if not (asset.get("cropBoxPct") or asset.get("cropBox") or asset.get("box")):
+      raise ValueError(f"Asset {asset.get('id')} is missing cropBoxPct.")
+
+
+def crop_asset_sheet(job: dict[str, Any]) -> dict[str, Any]:
+  script = SERVER_DIR / "crop_asset_sheet.py"
+  input_path = job_dir(job["id"]) / RESULT_JSON
+  completed = subprocess.run(
+    ["python", str(script), str(input_path)],
+    cwd=REPO_ROOT,
+    text=True,
+    capture_output=True,
+    timeout=180,
+    check=False,
+  )
+  (job_dir(job["id"]) / ASSET_SHEET_CROP_LOG).write_text(
+    completed.stdout + "\n" + completed.stderr,
+    encoding="utf-8",
+  )
+  if completed.returncode != 0:
+    raise RuntimeError(f"Asset sheet crop failed with exit code {completed.returncode}.")
+  return json.loads(completed.stdout or "{}")
 
 
 def run_codex(job: dict[str, Any]) -> None:
@@ -273,10 +321,14 @@ def run_job(job_id: str) -> None:
 
     project = json.loads(result_path.read_text(encoding="utf-8"))
     validate_result(job, project)
-    append_log(job, "실제 생성 이미지 파일을 확인했습니다.")
+    append_log(job, "실제 생성 에셋 시트 이미지를 확인했습니다.")
 
+    crop_result = crop_asset_sheet(job)
+    append_log(job, f"에셋 시트에서 {len(crop_result.get('cutouts', []))}개 PNG 에셋을 잘라냈습니다.")
+
+    project = json.loads(result_path.read_text(encoding="utf-8"))
     build_pptx(job)
-    append_log(job, "서버 PPTX 파일을 생성했습니다.")
+    append_log(job, "잘라낸 에셋을 배치한 서버 PPTX 파일을 생성했습니다.")
 
     job["result"] = project
     job["status"] = "succeeded"

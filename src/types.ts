@@ -18,6 +18,20 @@ export type SlidePlan = {
   imagePlan: string
   diagramPlan: string
   teacherNote: string
+  assetIds?: string[]
+}
+
+export type CropBoxPct = {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export type AssetSheet = {
+  fileName: string
+  prompt: string
+  layout: string
 }
 
 export type AssetPlan = {
@@ -27,6 +41,9 @@ export type AssetPlan = {
   kind: '배경' | '투명 PNG' | '아이콘 세트' | '캐릭터/오브젝트'
   prompt: string
   status: WorkflowStatus
+  sourceSheet?: string
+  fileName?: string
+  cropBoxPct?: CropBoxPct
 }
 
 export type DiagramSpec = {
@@ -57,6 +74,7 @@ export type SitpoProject = {
   style: string
   currentStep: string
   createdAt: string
+  assetSheet?: AssetSheet
   slides: SlidePlan[]
   assets: AssetPlan[]
   diagrams: DiagramSpec[]

@@ -200,7 +200,7 @@ function App() {
             <button className="primary wide mt-4" onClick={handleGeneratePlan} disabled={loading}>
               생성 요청 ({loading ? '요청 중' : 'Codex 작업 시작'})
             </button>
-            <p className="helper-text">실제 Codex CLI가 슬라이드 설계, 네이티브 이미지 생성, PPTX 조립을 수행합니다. 작업은 몇 분 정도 걸릴 수 있습니다.</p>
+            <p className="helper-text">실제 Codex CLI가 슬라이드 설계, 필요한 에셋 목록 작성, 에셋 시트 1장 생성, 자동 잘라내기, PPTX 조립을 수행합니다. 작업은 몇 분 정도 걸릴 수 있습니다.</p>
             {statusMessage && <p className="helper-text">{statusMessage}</p>}
           </section>
         </main>
@@ -263,7 +263,7 @@ function App() {
           <div className="inspector-card accent">
             <p className="eyebrow">연동 상태</p>
             <h3>{statusMessage || jobLabel(job)}</h3>
-            <p>서버가 Codex CLI 작업을 실행합니다. 네이티브 이미지 생성이 불가능하면 작업은 명확히 실패로 표시됩니다.</p>
+            <p>서버가 Codex CLI 작업을 실행합니다. 이제 슬라이드별 이미지가 아니라 에셋 시트 1장을 생성한 뒤 잘라낸 PNG를 PPTX에 배치합니다.</p>
           </div>
 
           <div className="inspector-card">
@@ -319,7 +319,7 @@ function JobStatusPanel({ job }: { job: SitpoJob | null }) {
       <article className="summary-box">
         <span>대기 안내</span>
         <strong>Codex 작업 중</strong>
-        <p>서버가 ChatGPT OAuth로 인증된 Codex CLI를 실행하며, 네이티브 이미지 생성까지 검증합니다.</p>
+        <p>서버가 ChatGPT OAuth로 인증된 Codex CLI를 실행하며, 에셋 시트 생성과 잘라낸 PNG 산출까지 검증합니다.</p>
       </article>
     </div>
   )
@@ -341,7 +341,7 @@ function ResearchPanel({ project }: { project: SitpoProject }) {
       <article className="summary-box">
         <span>슬라이드</span>
         <strong>{project.slides.length}장</strong>
-        <p>계획, 활동, 이미지/도식 계획을 포함합니다.</p>
+        <p>계획, 활동, 에셋 배치, 도식 계획을 포함합니다.</p>
       </article>
       <article className="summary-box">
         <span>현재 상태</span>
@@ -394,10 +394,18 @@ function PlanTable({ project }: { project: SitpoProject }) {
 function AssetBoard({ project }: { project: SitpoProject }) {
   return (
     <div className="cards-list">
+      {project.assetSheet && (
+        <article className="work-item asset-sheet-item">
+          <div><b>에셋 시트</b><span>{project.assetSheet.fileName}</span></div>
+          <p>{project.assetSheet.layout || project.assetSheet.prompt}</p>
+          <em className="status status-완료">시트 생성</em>
+        </article>
+      )}
       {project.assets.map((asset) => (
         <article className="work-item" key={asset.id}>
           <div><b>{asset.name}</b><span>{asset.kind} · 슬라이드 {asset.slides.join(', ')}</span></div>
           <p>{asset.prompt}</p>
+          <small>시트: {asset.sourceSheet || project.assetSheet?.fileName || '-'} · 컷아웃: {asset.fileName || '생성 대기'}{asset.cropBoxPct ? ` · crop ${asset.cropBoxPct.x},${asset.cropBoxPct.y},${asset.cropBoxPct.w},${asset.cropBoxPct.h}%` : ''}</small>
           <em className={`status status-${asset.status.replaceAll(' ', '-')}`}>{asset.status}</em>
         </article>
       ))}

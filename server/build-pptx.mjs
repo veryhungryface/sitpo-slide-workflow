@@ -25,13 +25,22 @@ function firstExistingImage(...candidates) {
   return null
 }
 
-function imageForSlide(slideNo) {
-  const slide = project.slides.find((item) => item.slideNo === slideNo)
-  const direct = firstExistingImage(slide?.imageFile, slide?.imagePath)
-  if (direct) return direct
+function assetsForSlide(slideData) {
+  const ids = new Set(Array.isArray(slideData.assetIds) ? slideData.assetIds : [])
+  return (project.assets || [])
+    .filter((asset) => {
+      const usedBySlide = Array.isArray(asset.slides) && asset.slides.includes(slideData.slideNo)
+      return ids.has(asset.id) || usedBySlide
+    })
+    .map((asset) => ({
+      ...asset,
+      imagePath: firstExistingImage(asset.fileName, asset.filename, asset.path, asset.generatedImage),
+    }))
+    .filter((asset) => asset.imagePath)
+}
 
-  const asset = project.assets?.find((item) => Array.isArray(item.slides) && item.slides.includes(slideNo))
-  return firstExistingImage(asset?.fileName, asset?.filename, asset?.path, asset?.generatedImage)
+function sheetImagePath() {
+  return firstExistingImage(project.assetSheet?.fileName)
 }
 
 const pptx = new PptxGenJS()
@@ -129,29 +138,56 @@ for (const slideData of project.slides) {
     margin: 0.02,
   })
 
-  const imagePath = imageForSlide(slideData.slideNo)
-  if (imagePath) {
-    slide.addImage({ path: imagePath, x: 6.2, y: 1.02, w: 6.25, h: 3.85, sizingCrop: true })
+  const slideAssets = assetsForSlide(slideData)
+  slide.addShape(pptx.ShapeType.roundRect, {
+    x: 6.05,
+    y: 1.02,
+    w: 6.38,
+    h: 3.95,
+    rectRadius: 0.08,
+    fill: { color: 'FFFDF4', transparency: 4 },
+    line: { color: 'D8E1D3' },
+  })
+
+  if (slideAssets.length > 0) {
+    const slots = [
+      { x: 6.35, y: 1.22, w: 2.75, h: 1.55 },
+      { x: 9.25, y: 1.22, w: 2.75, h: 1.55 },
+      { x: 6.35, y: 2.98, w: 2.75, h: 1.55 },
+      { x: 9.25, y: 2.98, w: 2.75, h: 1.55 },
+    ]
+    slideAssets.slice(0, 4).forEach((asset, index) => {
+      const slot = slots[index]
+      slide.addImage({ path: asset.imagePath, x: slot.x, y: slot.y, w: slot.w, h: slot.h, sizingContain: true })
+      slide.addText(asset.name || asset.id || '', {
+        x: slot.x,
+        y: slot.y + slot.h + 0.03,
+        w: slot.w,
+        h: 0.18,
+        fontSize: 7,
+        color: '617568',
+        align: 'center',
+        margin: 0,
+        fit: 'shrink',
+      })
+    })
   } else {
-    slide.addShape(pptx.ShapeType.rect, {
-      x: 6.2,
-      y: 1.02,
-      w: 6.25,
-      h: 3.85,
-      fill: { color: 'FFFDF4' },
-      line: { color: 'D8E1D3', dash: 'dash' },
-    })
-    slide.addText(slideData.imagePlan || '이미지 계획 없음', {
-      x: 6.45,
-      y: 2.45,
-      w: 5.75,
-      h: 0.9,
-      fontSize: 13,
-      color: '617568',
-      align: 'center',
-      fit: 'shrink',
-      margin: 0.02,
-    })
+    const sheet = sheetImagePath()
+    if (sheet) {
+      slide.addImage({ path: sheet, x: 6.25, y: 1.2, w: 5.95, h: 3.55, sizingContain: true })
+    } else {
+      slide.addText(slideData.imagePlan || '이미지 계획 없음', {
+        x: 6.45,
+        y: 2.45,
+        w: 5.75,
+        h: 0.9,
+        fontSize: 13,
+        color: '617568',
+        align: 'center',
+        fit: 'shrink',
+        margin: 0.02,
+      })
+    }
   }
 
   slide.addText(`도식: ${slideData.diagramPlan || '없음'}\n교사용 메모: ${slideData.teacherNote || ''}`, {
