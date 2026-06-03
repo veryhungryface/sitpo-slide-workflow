@@ -3,7 +3,6 @@ import './App.css'
 import { getSubjectsForGrade, getUnitsForGradeSubject, gradeOptions } from './data/elementaryCurriculum'
 import { workflowSteps } from './data/sampleProject'
 import { downloadText, exportMarkdown } from './lib/exporters'
-import { generatePptx } from './lib/pptxGenerator'
 import { createSitpoJob, getSitpoJob, normalizeSitpoJob } from './lib/sitpoApi'
 import type { SitpoJob, SitpoJobFile, SitpoProject, WorkflowStatus, WorkflowStep } from './types'
 
@@ -127,27 +126,11 @@ function App() {
     const pptxFile = serverPptxFile(job)
     if (pptxFile) {
       window.location.href = pptxFile.url
-      setStatusMessage('서버 PPTX 다운로드를 시작했습니다.')
+      setStatusMessage('에셋 이미지가 포함된 서버 PPTX 다운로드를 시작했습니다.')
       return
     }
 
-    if (!project) {
-      setStatusMessage('서버 PPTX가 아직 없습니다. Codex 작업이 끝난 뒤 다시 시도해 주세요.')
-      return
-    }
-
-    setStatusMessage('서버 PPTX가 없어 브라우저 미리보기 PPTX를 생성합니다...')
-    setLoading(true)
-    try {
-      const pptxBlob = await generatePptx(project)
-      downloadText(`${project.id}.pptx`, pptxBlob, 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
-      setStatusMessage('브라우저 미리보기 PPTX 다운로드를 시작했습니다.')
-    } catch (error) {
-      console.error('Error generating PPTX:', error)
-      setStatusMessage('PPTX 생성 중 오류가 발생했습니다.')
-    } finally {
-      setLoading(false)
-    }
+    setStatusMessage('아직 서버 PPTX가 없습니다. Codex 작업이 완료되어 에셋 PNG와 PPTX가 생성된 뒤 다운로드할 수 있습니다.')
   }
 
   if (currentView === 'input') {
@@ -218,7 +201,7 @@ function App() {
         <div className="topbar-actions">
           <button className="ghost" onClick={() => project && downloadText(`${project.id}_plan.md`, exportMarkdown(project))} disabled={!project}>계획서 Markdown</button>
           <button className="ghost" onClick={() => project && downloadText(`${project.id}_project.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8')} disabled={!project}>프로젝트 JSON</button>
-          <button className="primary" onClick={handleGeneratePptx} disabled={loading || (!project && !serverPptxFile(job))}>PPTX 다운로드</button>
+          <button className="primary" onClick={handleGeneratePptx} disabled={loading || !serverPptxFile(job)}>PPTX 다운로드</button>
           <button className="primary" onClick={handleProceed} disabled={loading || !job}>[SITPO] 진행</button>
         </div>
       </header>
@@ -250,7 +233,7 @@ function App() {
               <p>{statusMessage || latestLog(job) || 'Codex 작업 상태를 기다리고 있습니다.'}</p>
             </div>
             <div className="stage-actions">
-              <button className="secondary" onClick={handleGeneratePptx} disabled={loading || (!project && !serverPptxFile(job))}>PPTX 미리보기</button>
+              <button className="secondary" onClick={handleGeneratePptx} disabled={loading || !serverPptxFile(job)}>PPTX 다운로드</button>
               <button className="primary" onClick={handleProceed} disabled={loading || !job}>[SITPO] 진행</button>
             </div>
           </section>
@@ -491,7 +474,7 @@ function DownloadPanel({ project, job }: { project: SitpoProject; job: SitpoJob 
       {pptxFile && <a className="download-button primary wide" href={pptxFile.url}>서버 PPTX 다운로드</a>}
       <article>
         <b>서버 산출물</b>
-        <p>서버 PPTX가 있으면 우선 사용합니다. 브라우저 PPTX는 서버 파일이 없을 때 보조 미리보기로만 사용합니다.</p>
+        <p>실제 수업용 PPTX는 서버에서 생성된 파일만 제공합니다. 브라우저 텍스트-only 임시 PPTX는 이미지 누락을 막기 위해 비활성화했습니다.</p>
       </article>
     </div>
   )
