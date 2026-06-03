@@ -133,9 +133,13 @@ def _row_cell_box(
     bottom = round(height * (row + 1) / rows)
     left = round(width * col / row_count)
     right = round(width * (col + 1) / row_count)
-    pad_x = max(2, round((right - left) * 0.035))
-    pad_y = max(2, round((bottom - top) * 0.035))
-    return _clamp_box((left + pad_x, top + pad_y, right - pad_x, bottom - pad_y), width, height)
+    # Keep only a small gutter. Do not shave much from the bottom: many generated
+    # cutouts sit visually on the lower cell boundary, and bottom shaving makes
+    # feet, notes, and shape shadows look clipped in the final PPTX.
+    pad_x = max(2, round((right - left) * 0.02))
+    pad_top = max(2, round((bottom - top) * 0.018))
+    pad_bottom = max(0, round((bottom - top) * 0.004))
+    return _clamp_box((left + pad_x, top + pad_top, right - pad_x, bottom - pad_bottom), width, height)
 
 def _box_from_asset(asset: dict[str, Any], width: int, height: int) -> tuple[int, int, int, int]:
     box = asset.get("cropBoxPct") or asset.get("cropBox") or asset.get("box")
@@ -228,16 +232,18 @@ def _content_box_in_cell(
         return cell
 
     content = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
-    pad_x = max(8, round(cell_w * 0.045))
-    pad_y = max(8, round(cell_h * 0.045))
+    pad_x = max(10, round(cell_w * 0.055))
+    pad_top = max(8, round(cell_h * 0.05))
+    pad_bottom = max(14, round(cell_h * 0.085))
     # Expand only inside the assigned row/cell. Crossing the cell boundary can pull in
     # thin shadows or object fragments from the neighboring row, which was the source
-    # of the “weird crop” issue.
+    # of the “weird crop” issue. Bottom gets extra room because PPTX fitting and
+    # transparentization make lower edges look clipped when the crop is too tight.
     return (
         max(left, content[0] - pad_x),
-        max(top, content[1] - pad_y),
+        max(top, content[1] - pad_top),
         min(right, content[2] + pad_x),
-        min(bottom, content[3] + pad_y),
+        min(bottom, content[3] + pad_bottom),
     )
 
 
@@ -290,6 +296,19 @@ def _remove_thin_stray_components(rgba: Image.Image) -> Image.Image:
                     px[x, y] = (px[x, y][0], px[x, y][1], px[x, y][2], 0)
     return rgba
 
+def _add_transparent_padding(rgba: Image.Image) -> Image.Image:
+    w, h = rgba.size
+    # Preserve a visible safety moat around cutouts. Without this, alpha bbox is
+    # exactly flush to the image edge and PowerPoint scaling/cropping can make
+    # lower strokes, shadows, and feet look chopped off.
+    pad_x = max(14, round(w * 0.06))
+    pad_top = max(12, round(h * 0.045))
+    pad_bottom = max(20, round(h * 0.10))
+    canvas = Image.new("RGBA", (w + pad_x * 2, h + pad_top + pad_bottom), (255, 255, 255, 0))
+    canvas.alpha_composite(rgba, (pad_x, pad_top))
+    return canvas
+
+
 def _remove_background(crop: Image.Image, bg: tuple[int, int, int] | None = None) -> Image.Image:
     rgba = crop.convert("RGBA")
     w, h = rgba.size
@@ -312,7 +331,7 @@ def _remove_background(crop: Image.Image, bg: tuple[int, int, int] | None = None
     alpha = rgba.getchannel("A")
     bbox = alpha.getbbox()
     if bbox:
-        rgba = rgba.crop(bbox)
+        rgba = _add_transparent_padding(rgba.crop(bbox))
     return rgba
 
 
