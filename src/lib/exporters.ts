@@ -54,8 +54,8 @@ export function exportMarkdown(project: SitpoProject): string {
   return `# ${project.title}\n\n## 프로젝트\n- 대상: ${project.grade}\n- 과목/단원: ${project.subject} / ${project.unit}\n- 주제: ${project.topic}\n- 스타일: ${project.style}\n\n## 슬라이드 계획\n\n${slideRows}\n\n## 이미지/에셋 생성 계획\n${assetRows}\n\n## 도식 생성 계획\n${diagramRows}\n\n## QA 체크리스트\n${qaRows}\n`
 }
 
-export function downloadText(filename: string, content: string, mime = 'text/plain;charset=utf-8') {
-  const blob = new Blob([content], { type: mime })
+export function downloadText(filename: string, content: string | Blob, mime = 'text/plain;charset=utf-8') {
+  const blob = typeof content === 'string' ? new Blob([content], { type: mime }) : content
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

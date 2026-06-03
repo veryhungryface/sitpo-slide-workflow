@@ -41,6 +41,7 @@ button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(16, 52,
 .secondary { background: #1d5c47; color: #f7f2df; }
 .ghost { background: rgba(255, 255, 255, .14); color: #fff8dc; border: 1px solid rgba(255,255,255,.24); }
 .wide { width: 100%; margin-top: 12px; background: #d5ff5d; }
+.mt-4 { margin-top: 16px; }
 .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 280px minmax(520px, 1fr) 330px; gap: 14px; padding: 14px; }
 .stepnav, .inspector, .main-panel { min-height: 0; overflow: hidden; }
 .stepnav, .inspector { display: flex; flex-direction: column; gap: 10px; }
@@ -65,15 +66,20 @@ button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(16, 52,
   text-align: left;
   background: rgba(255, 252, 239, .7);
   border: 1px solid rgba(22, 71, 54, .1);
+  border-radius: 22px;
+  padding: 16px;
 }
 .step.active { outline: 2px solid #d5ff5d; background: #fffcef; }
 .step-index { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #17352c; color: #fff8dc; font-weight: 900; }
-.step small, td small, .work-item span, .qa-item small { display: block; color: #667a70; font-size: 12px; line-height: 1.35; margin-top: 4px; }
+.step small, td small, .work-item span, .qa-item small, .diagram-card small { display: block; color: #667a70; font-size: 12px; line-height: 1.35; margin-top: 4px; }
 .status { white-space: nowrap; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-style: normal; background: #e6ebdf; color: #476456; }
 .status-완료 { background: #dff6c1; color: #276025; }
 .status-진행-중 { background: #d5ff5d; color: #17352c; }
 .status-수정-필요 { background: #ffe2ce; color: #a74b12; }
 .main-panel { display: flex; flex-direction: column; gap: 12px; }
+.input-form { display: grid; place-items: center; padding: 20px; }
+.input-form .content-card { max-width: 600px; width: 100%; padding: 30px; text-align: center; }
+.input-form h2 { margin-top: 0; font-size: 32px; letter-spacing: -.05em; }
 .stage-head { flex: 0 0 auto; padding: 18px 20px; display: flex; justify-content: space-between; gap: 20px; align-items: center; }
 .stage-head h2 { margin: 2px 0 4px; font-size: 28px; letter-spacing: -.04em; }
 .stage-head p { margin: 0; color: #63766c; }
@@ -93,6 +99,12 @@ table { width: 100%; border-collapse: collapse; background: #fffdf4; }
 th { position: sticky; top: 0; z-index: 1; background: #17352c; color: #fff8dc; text-align: left; font-size: 12px; padding: 12px; }
 td { border-bottom: 1px solid #e7eadf; padding: 12px; vertical-align: top; font-size: 14px; }
 tr.selected, tr:hover { background: #f1ffd0; }
+.plan-editor { display: grid; grid-template-columns: 1fr 300px; gap: 14px; height: 100%; }
+.plan-editor .table-wrap { height: 100%; }
+.plan-editor .slide-detail { padding: 16px; background: #fffdf4; border-radius: 18px; border: 1px solid rgba(23, 53, 44, .1); overflow: auto; }
+.plan-editor .slide-detail h3 { margin-top: 0; font-size: 20px; letter-spacing: -.03em; }
+.plan-editor .slide-detail p { font-size: 14px; margin-bottom: 8px; }
+.plan-editor .slide-detail b { color: #36564a; }
 .cards-list { display: flex; flex-direction: column; gap: 12px; }
 .work-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
 .work-item p { grid-column: 1 / -1; margin: 0; color: #66776d; }
@@ -101,9 +113,10 @@ tr.selected, tr:hover { background: #f1ffd0; }
 .diagram-top span { border-radius: 999px; padding: 4px 8px; background: #e9f1d6; font-size: 12px; color: #4f6f32; }
 .diagram-card p { color: #36564a; font-weight: 700; }
 .diagram-card small { display: block; color: #6e7f75; margin-top: 6px; }
+.diagram-card .status { margin-top: 10px; }
 .assembly { height: 100%; display: grid; grid-template-columns: 230px 1fr; gap: 14px; }
 .slide-list { overflow: auto; display: flex; flex-direction: column; gap: 8px; }
-.slide-list button { text-align: left; background: #fffdf4; border: 1px solid #e1e8d8; }
+.slide-list button { text-align: left; background: #fffdf4; border: 1px solid #e1e8d8; border-radius: 12px; padding: 10px; }
 .slide-preview { aspect-ratio: 16 / 9; align-self: start; border-radius: 28px; padding: 34px; background: radial-gradient(circle at 75% 20%, rgba(213,255,93,.5), transparent 30%), linear-gradient(135deg, #12392d, #245f49); color: #fff8dc; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); }
 .slide-preview .eyebrow { color: #d5ff5d; }
 .slide-preview h3 { font-size: 34px; margin: 12px 0; letter-spacing: -.04em; }

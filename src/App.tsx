@@ -1,142 +1,276 @@
-import { useMemo, useState } from 'react'
+import { useState, useMemo } from 'react'
 import './App.css'
 import { sampleProject, workflowSteps } from './data/sampleProject'
-import { createHandoffPayload, downloadText, exportMarkdown } from './lib/exporters'
-import type { HandoffPayload, SitpoProject, WorkflowStatus } from './types'
+import { downloadText, exportMarkdown } from './lib/exporters'
+import { generatePptx } from './lib/pptxGenerator'
+import type { HandoffPayload, SitpoProject, WorkflowStatus, SlidePlan, AssetPlan, DiagramSpec, WorkflowStep } from './types'
 
+// --- Helper Functions --- //
 function statusFor(index: number, currentIndex: number): WorkflowStatus {
   if (index < currentIndex) return '완료'
   if (index === currentIndex) return '진행 중'
   return '대기'
 }
 
+function nextActionForStep(stepId: string) {
+  switch (stepId) {
+    case 'research':
+      return '교육과정·핵심 개념 조사 후 슬라이드 계획서 작성'
+    case 'plan':
+      return '계획서 승인 후 이미지/도식 작업 단위 생성'
+    case 'assets':
+      return 'Codex 네이티브 이미지 생성 및 투명 PNG 후처리'
+    case 'diagrams':
+      return 'DiagramSpec를 SVG/PNG로 안정 렌더링'
+    case 'assembly':
+      return 'PptxGenJS로 슬라이드 조립 및 미리보기 생성'
+    case 'qa':
+      return 'PDF/PNG 렌더링 QA 후 수정 루프 실행'
+    default:
+      return '산출물 다운로드 및 공유 링크 생성'
+  }
+}
+
+// --- Mocking AI/Codex Generation --- //
+const simulateAiGeneration = (request: { prompt: string; type: 'slides' | 'assets' | 'diagrams' }): Promise<Partial<SitpoProject>> => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      if (request.type === 'slides') {
+        const generatedSlides: SlidePlan[] = sampleProject.slides.map((slide) => ({ ...slide, imagePlan: '[생성 이미지 적용 예정]', diagramPlan: '[생성 도식 적용 예정]' }))
+        resolve({ slides: generatedSlides, currentStep: 'assembly' })
+      } else if (request.type === 'assets') {
+        const generatedAssets: AssetPlan[] = sampleProject.assets.map((asset) => ({ ...asset, status: '완료' }))
+        resolve({ assets: generatedAssets, currentStep: 'assets' })
+      } else if (request.type === 'diagrams') {
+        const generatedDiagrams: DiagramSpec[] = sampleProject.diagrams.map((diagram) => ({ ...diagram, status: '완료' }))
+        resolve({ diagrams: generatedDiagrams, currentStep: 'diagrams' })
+      }
+      resolve({})
+    }, 2000) // Simulate network delay
+  })
+}
+
+// --- Main App Component --- //
 function App() {
-  const [project, setProject] = useState<SitpoProject>(sampleProject)
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [selectedSlide, setSelectedSlide] = useState(0)
+  const [project, setProject] = useState<SitpoProject | null>(null)
+  const [currentView, setCurrentView] = useState<'input' | 'plan' | 'preview'>('input')
+  const [grade, setGrade] = useState('초5')
+  const [subject, setSubject] = useState('과학')
+  const [unit, setUnit] = useState('생물과 환경')
+  const [topic, setTopic] = useState('생태계의 구성 요소')
+  const [slideCount, setSlideCount] = useState(9)
+  const [style, setStyle] = useState('프리미엄 과학 탐험 노트형')
+  const [statusMessage, setStatusMessage] = useState('')
   const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('sitpo-webhook-url') ?? '')
-  const [lastMode, setLastMode] = useState<HandoffPayload['mode']>('continue_step')
-  const [toast, setToast] = useState('진행 대기 중')
+  const [loading, setLoading] = useState(false)
 
-  const currentStep = workflowSteps[currentIndex]
-  const payload = useMemo(
-    () => createHandoffPayload(project, currentStep, lastMode, webhookUrl),
-    [project, currentStep, lastMode, webhookUrl],
-  )
+  const currentStep = project ? workflowSteps.find(step => step.id === project.currentStep) || workflowSteps[0] : workflowSteps[0]
 
-  const progress = Math.round(((currentIndex + 1) / workflowSteps.length) * 100)
-  const activeSlide = project.slides[selectedSlide]
+  const handoffPayload: HandoffPayload | null = useMemo(() => {
+    if (!project) return null
+    return {
+      source: 'sitpo-slide-workflow-mvp',
+      command: '[SITPO] 진행',
+      mode: 'continue_step',
+      webhookUrl: webhookUrl?.trim() || undefined,
+      currentStep: currentStep.label,
+      nextAction: nextActionForStep(currentStep.id),
+      project: {
+        id: project.id,
+        title: project.title,
+        grade: project.grade,
+        subject: project.subject,
+        unit: project.unit,
+        topic: project.topic,
+        style: project.style,
+      },
+      slideCount: project.slides.length,
+      assetCount: project.assets.length,
+      diagramCount: project.diagrams.length,
+      qaPassed: project.qa.filter((item) => item.passed).length,
+      qaTotal: project.qa.length,
+      requestedOutputs: ['slide_plan.md', 'sitpo_project.json', 'handoff_payload.json', 'PPTX', 'PDF'],
+      slides: project.slides,
+      assets: project.assets,
+      diagrams: project.diagrams,
+    }
+  }, [project, currentStep, webhookUrl])
+
+  const handleGeneratePlan = async () => {
+    setLoading(true)
+    setStatusMessage('슬라이드 계획서를 생성 중입니다...')
+    // Simulate plan generation based on inputs
+    const newProject: SitpoProject = {
+      ...sampleProject,
+      id: `sitpo-${Date.now()}`,
+      grade, subject, unit, topic, style,
+      slides: Array.from({ length: slideCount }, (_, i) => ({
+        ...sampleProject.slides[i % sampleProject.slides.length], // Cycle through sample slides
+        slideNo: i + 1,
+        title: `${topic} - ${i + 1}차시`,
+      })),
+      currentStep: 'plan',
+      title: `${grade} ${subject} - ${topic}`,
+    }
+    setProject(newProject)
+    setCurrentView('plan')
+    setStatusMessage('계획서 생성이 완료되었습니다.')
+    setLoading(false)
+  }
+
+  const postHandoffPayload = async (payload: HandoffPayload) => {
+    const targetUrl = webhookUrl.trim()
+    if (!targetUrl) return false
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Webhook failed: ${response.status}`)
+    }
+
+    return true
+  }
+
+  const handleProceed = async () => {
+    if (!project) return
+
+    const nextStepIndex = workflowSteps.findIndex(step => step.id === project.currentStep) + 1
+    if (nextStepIndex < workflowSteps.length) {
+      const nextStep = workflowSteps[nextStepIndex]
+      setLoading(true)
+      setStatusMessage(`${nextStep.label} 단계 작업을 진행 중입니다...`)
+
+      try {
+        const sentToWebhook = handoffPayload ? await postHandoffPayload(handoffPayload) : false
+        let updatedProject = { ...project }
+
+        if (nextStep.id === 'assets') {
+          const res = await simulateAiGeneration({ prompt: `Generate assets for ${project.topic}`, type: 'assets' })
+          updatedProject = { ...updatedProject, ...res, currentStep: 'assets' }
+        } else if (nextStep.id === 'diagrams') {
+          const res = await simulateAiGeneration({ prompt: `Generate diagrams for ${project.topic}`, type: 'diagrams' })
+          updatedProject = { ...updatedProject, ...res, currentStep: 'diagrams' }
+        } else if (nextStep.id === 'assembly') {
+          const res = await simulateAiGeneration({ prompt: `Assemble slides for ${project.topic}`, type: 'slides' })
+          updatedProject = { ...updatedProject, ...res, currentStep: 'assembly' }
+        } else if (nextStep.id === 'qa') {
+          updatedProject = { ...updatedProject, qa: updatedProject.qa.map(item => ({ ...item, passed: true })), currentStep: 'qa' }
+        } else {
+          updatedProject = { ...updatedProject, currentStep: nextStep.id }
+        }
+
+        setProject(updatedProject)
+        setStatusMessage(`${sentToWebhook ? '웹훅 전송 완료 · ' : ''}${nextStep.label} 단계 완료. 다음: ${workflowSteps[nextStepIndex + 1]?.label || '다운로드'}`)
+        setCurrentView('preview')
+      } catch (error) {
+        console.error('SITPO handoff failed:', error)
+        setStatusMessage('웹훅 전송에 실패했습니다. URL/CORS 설정을 확인해 주세요.')
+      } finally {
+        setLoading(false)
+      }
+    } else {
+      setStatusMessage('모든 워크플로우 단계가 완료되었습니다.')
+    }
+  }
+
+  const handleGeneratePptx = async () => {
+    if (!project) return
+    setStatusMessage('PPTX 파일을 생성 중입니다...')
+    setLoading(true)
+    try {
+      const pptxBlob = await generatePptx(project)
+      downloadText(`${project.id}.pptx`, pptxBlob, 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+      setStatusMessage('PPTX 파일 다운로드를 시작했습니다.')
+    } catch (error) {
+      console.error('Error generating PPTX:', error)
+      setStatusMessage('PPTX 생성 중 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   function persistWebhook(value: string) {
     setWebhookUrl(value)
     localStorage.setItem('sitpo-webhook-url', value)
   }
 
-  function markLinkedWork(mode: HandoffPayload['mode']) {
-    setLastMode(mode)
-    setProject((prev) => ({
-      ...prev,
-      currentStep: currentStep.id,
-      assets: prev.assets.map((asset) =>
-        currentStep.id === 'assets' ? { ...asset, status: '진행 중' } : asset,
-      ),
-      diagrams: prev.diagrams.map((diagram) =>
-        currentStep.id === 'diagrams' ? { ...diagram, status: '진행 중' } : diagram,
-      ),
-    }))
-  }
-
-  function handleProgress() {
-    markLinkedWork('continue_step')
-    if (currentIndex < workflowSteps.length - 1) {
-      const nextIndex = currentIndex + 1
-      setCurrentIndex(nextIndex)
-      setToast(`진행 연결됨: ${workflowSteps[nextIndex].label} 단계로 이동`)
-    } else {
-      setToast('모든 단계가 완료 상태입니다. 다운로드/공유를 진행하세요.')
-    }
-  }
-
-  function approveAndBuild() {
-    markLinkedWork('approve_and_build')
-    const assemblyIndex = workflowSteps.findIndex((step) => step.id === 'assembly')
-    setCurrentIndex(Math.max(assemblyIndex, currentIndex))
-    setToast('승인 후 제작 모드로 작업 페이로드가 갱신되었습니다.')
-  }
-
-  async function copyPayload() {
-    const text = JSON.stringify(payload, null, 2)
-    try {
-      await navigator.clipboard.writeText(text)
-      setToast('작업 페이로드를 클립보드에 복사했습니다.')
-    } catch {
-      downloadText('sitpo_handoff_payload.json', text, 'application/json;charset=utf-8')
-      setToast('클립보드가 막혀 JSON 파일로 다운로드했습니다.')
-    }
-  }
-
-  function toggleQa(id: string) {
-    setProject((prev) => ({
-      ...prev,
-      qa: prev.qa.map((item) => (item.id === id ? { ...item, passed: !item.passed } : item)),
-    }))
-  }
-
-  function renderStepContent() {
-    if (currentStep.id === 'research') {
-      return <ResearchPanel project={project} />
-    }
-    if (currentStep.id === 'plan') {
-      return <PlanTable project={project} selectedSlide={selectedSlide} setSelectedSlide={setSelectedSlide} />
-    }
-    if (currentStep.id === 'assets') {
-      return <AssetBoard project={project} />
-    }
-    if (currentStep.id === 'diagrams') {
-      return <DiagramBoard project={project} />
-    }
-    if (currentStep.id === 'assembly') {
-      return <AssemblyPreview project={project} activeSlide={activeSlide} setSelectedSlide={setSelectedSlide} />
-    }
-    if (currentStep.id === 'qa') {
-      return <QaPanel project={project} toggleQa={toggleQa} />
-    }
-    return <DownloadPanel project={project} payload={payload} />
+  if (currentView === 'input') {
+    return (
+      <div className="app-shell">
+        <header className="topbar">
+          <h1>SITPO 슬라이드 생성기</h1>
+        </header>
+        <main className="main-panel input-form">
+          <section className="content-card">
+            <h2>새 슬라이드 요청</h2>
+            <div className="grid two">
+              <label className="field">
+                <span>대상 (학년)</span>
+                <input value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="예: 초5" />
+              </label>
+              <label className="field">
+                <span>과목</span>
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="예: 과학" />
+              </label>
+              <label className="field">
+                <span>단원</span>
+                <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="예: 생물과 환경" />
+              </label>
+              <label className="field">
+                <span>주제</span>
+                <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="예: 생태계의 구성 요소" />
+              </label>
+              <label className="field">
+                <span>슬라이드 수</span>
+                <input type="number" value={slideCount} onChange={(e) => setSlideCount(parseInt(e.target.value))} placeholder="예: 9" />
+              </label>
+              <label className="field">
+                <span>스타일</span>
+                <input value={style} onChange={(e) => setStyle(e.target.value)} placeholder="예: 프리미엄 과학 탐험 노트형" />
+              </label>
+            </div>
+            <button className="primary wide mt-4" onClick={handleGeneratePlan} disabled={loading}>생성 요청 ({loading ? statusMessage : '클릭'})</button>
+          </section>
+        </main>
+      </div>
+    )
   }
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">SITPO Slide Workflow MVP</p>
-          <h1>{project.title}</h1>
+          <p className="eyebrow">SITPO Slide Generator</p>
+          <h1>{project?.title || '슬라이드 프로젝트'}</h1>
         </div>
         <div className="topbar-actions">
-          <button className="ghost" onClick={() => downloadText('sitpo_slide_plan.md', exportMarkdown(project))}>Markdown</button>
-          <button className="ghost" onClick={() => downloadText('sitpo_project.json', JSON.stringify(project, null, 2), 'application/json;charset=utf-8')}>JSON</button>
-          <button className="primary" onClick={handleProgress}>[SITPO] 진행</button>
+          <button className="ghost" onClick={() => project && downloadText(`${project.id}_plan.md`, exportMarkdown(project))}>계획서 Markdown</button>
+          <button className="ghost" onClick={() => project && downloadText(`${project.id}_project.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8')}>프로젝트 JSON</button>
+          <button className="primary" onClick={handleGeneratePptx} disabled={loading}>PPTX 다운로드</button>
+          <button className="primary" onClick={handleProceed} disabled={loading}>[SITPO] 진행 ({workflowSteps.findIndex(step => step.id === project?.currentStep) + 1}/{workflowSteps.length})</button>
         </div>
       </header>
 
       <div className="workspace">
         <aside className="stepnav">
           <div className="progress-card">
-            <strong>{progress}%</strong>
+            <strong>{Math.round(((workflowSteps.findIndex(step => step.id === project?.currentStep) + 1) / workflowSteps.length) * 100)}%</strong>
             <span>현재 단계: {currentStep.label}</span>
-            <div className="progress-track"><i style={{ width: `${progress}%` }} /></div>
+            <div className="progress-track"><i style={{ width: `${Math.round(((workflowSteps.findIndex(step => step.id === project?.currentStep) + 1) / workflowSteps.length) * 100)}%` }} /></div>
           </div>
           {workflowSteps.map((step, index) => {
-            const status = statusFor(index, currentIndex)
+            const currentStepIndex = workflowSteps.findIndex(s => s.id === project?.currentStep)
+            const status = statusFor(index, currentStepIndex)
             return (
-              <button
-                className={`step ${index === currentIndex ? 'active' : ''}`}
-                key={step.id}
-                onClick={() => setCurrentIndex(index)}
-              >
+              <div className={`step ${index === currentStepIndex ? 'active' : ''}`} key={step.id}>
                 <span className="step-index">{index + 1}</span>
                 <span><b>{step.label}</b><small>{step.description}</small></span>
                 <em className={`status status-${status.replaceAll(' ', '-')}`}>{status}</em>
-              </button>
+              </div>
             )
           })}
         </aside>
@@ -146,21 +280,21 @@ function App() {
             <div>
               <p className="eyebrow">현재 작업</p>
               <h2>{currentStep.label}</h2>
-              <p>{currentStep.description}</p>
+              <p>{statusMessage || currentStep.description}</p>
             </div>
             <div className="stage-actions">
-              <button className="secondary" onClick={approveAndBuild}>승인 후 제작</button>
-              <button className="primary" onClick={handleProgress}>진행 연결</button>
+              <button className="secondary" onClick={handleGeneratePptx} disabled={loading}>PPTX 미리보기</button>
+              <button className="primary" onClick={handleProceed} disabled={loading}>[SITPO] 진행</button>
             </div>
           </section>
-          <section className="content-card">{renderStepContent()}</section>
+          <section className="content-card">{project && renderStepContent(project, currentStep, currentStep.id === 'qa' ? (id) => setProject(prev => prev ? ({ ...prev, qa: prev.qa.map(item => (item.id === id ? { ...item, passed: !item.passed } : item)) }) : null) : undefined)}</section>
         </main>
 
         <aside className="inspector">
           <div className="inspector-card accent">
             <p className="eyebrow">연동 상태</p>
-            <h3>{toast}</h3>
-            <p>버튼을 누르면 현재 단계, 다음 액션, 슬라이드/에셋/도식 데이터가 작업 페이로드로 즉시 갱신됩니다.</p>
+            <h3>{statusMessage}</h3>
+            <p>SITPO 진행 버튼을 누르면 다음 단계로 이동하며, 내부 페이로드가 갱신됩니다. 웹훅 URL로 Hermes/Codex에 연동할 수 있습니다.</p>
           </div>
 
           <label className="field">
@@ -173,25 +307,40 @@ function App() {
           </label>
 
           <div className="inspector-card">
-            <p className="eyebrow">현재 페이로드</p>
+            <p className="eyebrow">현재 페이로드 미리보기</p>
             <dl className="payload-meta">
-              <div><dt>명령</dt><dd>{payload.command}</dd></div>
-              <div><dt>모드</dt><dd>{payload.mode}</dd></div>
-              <div><dt>다음 액션</dt><dd>{payload.nextAction}</dd></div>
-              <div><dt>슬라이드</dt><dd>{payload.slideCount}장</dd></div>
-              <div><dt>QA</dt><dd>{payload.qaPassed}/{payload.qaTotal}</dd></div>
+              {handoffPayload && (
+                <>
+                  <div><dt>명령</dt><dd>{handoffPayload.command}</dd></div>
+                  <div><dt>모드</dt><dd>{handoffPayload.mode}</dd></div>
+                  <div><dt>다음 액션</dt><dd>{handoffPayload.nextAction}</dd></div>
+                  <div><dt>슬라이드</dt><dd>{handoffPayload.slideCount}장</dd></div>
+                  <div><dt>QA</dt><dd>{handoffPayload.qaPassed}/{handoffPayload.qaTotal}</dd></div>
+                </>
+              )}
             </dl>
-            <button className="wide" onClick={copyPayload}>작업 페이로드 복사</button>
+            <button
+              className="wide"
+              onClick={async () => {
+                if (!handoffPayload) return
+                await navigator.clipboard.writeText(JSON.stringify(handoffPayload, null, 2))
+                setStatusMessage('페이로드 클립보드 복사 완료')
+              }}
+              disabled={!handoffPayload}
+            >작업 페이로드 복사</button>
           </div>
 
           <div className="inspector-card small-code">
-            <pre>{JSON.stringify({ command: payload.command, step: payload.currentStep, nextAction: payload.nextAction }, null, 2)}</pre>
+            <pre>{handoffPayload ? JSON.stringify({ command: handoffPayload.command, step: handoffPayload.currentStep, nextAction: handoffPayload.nextAction }, null, 2) : '생성 요청 대기 중'}</pre>
           </div>
         </aside>
       </div>
     </div>
   )
 }
+
+// --- Helper Components for each step --- //
+// NOTE: In a real app, these would be separate files.
 
 function ResearchPanel({ project }: { project: SitpoProject }) {
   return (
@@ -212,33 +361,47 @@ function ResearchPanel({ project }: { project: SitpoProject }) {
         <p>관찰 → 분류 → 관계 → 균형 변화 순서로 수업 흐름을 구성합니다.</p>
       </article>
       <article className="summary-box">
-        <span>바로 연동</span>
-        <strong>[SITPO] 진행</strong>
-        <p>진행 버튼이 작업 상태와 Hermes/Codex 전달용 JSON을 함께 갱신합니다.</p>
+        <span>현재 상태</span>
+        <strong>{project.currentStep}</strong>
+        <p>요청 정보를 바탕으로 계획서를 자동으로 생성했습니다. [SITPO] 진행 버튼으로 다음 단계로 이동합니다.</p>
       </article>
     </div>
   )
 }
 
-function PlanTable({ project, selectedSlide, setSelectedSlide }: { project: SitpoProject; selectedSlide: number; setSelectedSlide: (index: number) => void }) {
+function PlanTable({ project }: { project: SitpoProject }) {
+  const [selectedSlide, setSelectedSlide] = useState(0)
+  const activeSlide = project.slides[selectedSlide]
+
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr><th>장</th><th>제목</th><th>핵심 메시지</th><th>활동</th><th>이미지/도식 계획</th></tr>
-        </thead>
-        <tbody>
-          {project.slides.map((slide, index) => (
-            <tr key={slide.slideNo} className={index === selectedSlide ? 'selected' : ''} onClick={() => setSelectedSlide(index)}>
-              <td>{slide.slideNo}</td>
-              <td><b>{slide.title}</b><small>{slide.learningGoal}</small></td>
-              <td>{slide.mainMessage}</td>
-              <td>{slide.studentActivity}</td>
-              <td><small>이미지: {slide.imagePlan}</small><small>도식: {slide.diagramPlan}</small></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="plan-editor">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>장</th><th>제목</th><th>핵심 메시지</th><th>활동</th><th>이미지/도식 계획</th></tr>
+          </thead>
+          <tbody>
+            {project.slides.map((slide, index) => (
+              <tr key={slide.slideNo} className={index === selectedSlide ? 'selected' : ''} onClick={() => setSelectedSlide(index)}>
+                <td>{slide.slideNo}</td>
+                <td><b>{slide.title}</b><small>{slide.learningGoal}</small></td>
+                <td>{slide.mainMessage}</td>
+                <td>{slide.studentActivity}</td>
+                <td><small>이미지: {slide.imagePlan}</small><small>도식: {slide.diagramPlan}</small></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="slide-detail">
+        <h3>{activeSlide.title}</h3>
+        <p>{activeSlide.mainMessage}</p>
+        <p><b>화면 문구:</b> {activeSlide.visibleText.join(' / ')}</p>
+        <p><b>학생 활동:</b> {activeSlide.studentActivity}</p>
+        <p><b>이미지 계획:</b> {activeSlide.imagePlan}</p>
+        <p><b>도식 계획:</b> {activeSlide.diagramPlan}</p>
+        <p><b>교사용 메모:</b> {activeSlide.teacherNote}</p>
+      </div>
     </div>
   )
 }
@@ -266,13 +429,16 @@ function DiagramBoard({ project }: { project: SitpoProject }) {
           <p>{diagram.nodes.join(' → ')}</p>
           <small>레이아웃: {diagram.layout}</small>
           <small>QA: {diagram.qaRule}</small>
+          <em className={`status status-${diagram.status.replaceAll(' ', '-')}`}>{diagram.status}</em>
         </article>
       ))}
     </div>
   )
 }
 
-function AssemblyPreview({ project, activeSlide, setSelectedSlide }: { project: SitpoProject; activeSlide: SitpoProject['slides'][number]; setSelectedSlide: (index: number) => void }) {
+function AssemblyPreview({ project }: { project: SitpoProject }) {
+  const [selectedSlide, setSelectedSlide] = useState(0)
+  const activeSlide = project.slides[selectedSlide]
   return (
     <div className="assembly">
       <div className="slide-list">
@@ -302,18 +468,40 @@ function QaPanel({ project, toggleQa }: { project: SitpoProject; toggleQa: (id: 
   )
 }
 
-function DownloadPanel({ project, payload }: { project: SitpoProject; payload: HandoffPayload }) {
+function DownloadPanel({ project, payload }: { project: SitpoProject; payload: HandoffPayload | null }) {
   return (
     <div className="download-grid">
-      <button onClick={() => downloadText('sitpo_slide_plan.md', exportMarkdown(project))}>계획서 Markdown 다운로드</button>
-      <button onClick={() => downloadText('sitpo_project.json', JSON.stringify(project, null, 2), 'application/json;charset=utf-8')}>프로젝트 JSON 다운로드</button>
-      <button onClick={() => downloadText('sitpo_handoff_payload.json', JSON.stringify(payload, null, 2), 'application/json;charset=utf-8')}>작업 페이로드 다운로드</button>
+      <button onClick={() => downloadText(`${project.id}_plan.md`, exportMarkdown(project))}>계획서 Markdown 다운로드</button>
+      <button onClick={() => downloadText(`${project.id}_project.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8')}>프로젝트 JSON 다운로드</button>
+      <button onClick={() => payload && downloadText(`${project.id}_handoff_payload.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8')}>작업 페이로드 다운로드</button>
+      <button className="primary wide" onClick={async () => { const pptxBlob = await generatePptx(project); downloadText(`${project.id}.pptx`, pptxBlob, 'application/vnd.openxmlformats-officedocument.presentationml.presentation') }}>PPTX 다운로드</button>
       <article>
         <b>다음 서버 연동 지점</b>
         <p>Webhook URL이 들어오면 이 페이로드를 Hermes/Codex 작업 큐로 POST하는 API만 추가하면 됩니다.</p>
       </article>
     </div>
   )
+}
+
+function renderStepContent(project: SitpoProject, currentStep: WorkflowStep, toggleQa?: (id: string) => void) {
+  switch (currentStep.id) {
+    case 'research':
+      return <ResearchPanel project={project} />
+    case 'plan':
+      return <PlanTable project={project} />
+    case 'assets':
+      return <AssetBoard project={project} />
+    case 'diagrams':
+      return <DiagramBoard project={project} />
+    case 'assembly':
+      return <AssemblyPreview project={project} />
+    case 'qa':
+      return <QaPanel project={project} toggleQa={toggleQa!} />
+    case 'download':
+      return <DownloadPanel project={project} payload={null} /> // Payload handled by App.tsx
+    default:
+      return <div>내용을 로드할 수 없습니다.</div>
+  }
 }
 
 export default App
